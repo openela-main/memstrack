@@ -1,7 +1,7 @@
 # vim: syntax=spec
 
 Name:           memstrack
-Version:        0.2.4
+Version:        0.2.5
 Release:        2%{?dist}
 Summary:        A memory allocation tracer, like a hot spot analyzer for memory allocation
 License:        GPLv3
@@ -12,8 +12,7 @@ BuildRequires:  ncurses-devel
 
 Source:         https://github.com/ryncsn/memstrack/archive/refs/tags/v%{version}.tar.gz
 
-Patch1: 0001-Skip-memcg-info-in-__process_stacktrace-for-page_own.patch
-Patch2: 0002-Fix-data-type-error-in-perf_handle_mm_page_alloc.patch
+Patch1: 0001-Enlarge-rlimits-if-maximum-open-fds-reached-for-sys_.patch
 
 %description
 A memory allocation tracer, like a hot spot analyzer for memory allocation
@@ -21,7 +20,6 @@ A memory allocation tracer, like a hot spot analyzer for memory allocation
 %prep
 %setup -q -n memstrack-%{version}
 %patch1 -p1
-%patch2 -p1
 
 %build
 %{set_build_flags}
@@ -37,6 +35,12 @@ install -p -m 755 memstrack %{buildroot}/%{_bindir}
 %{_bindir}/memstrack
 
 %changelog
+* Tue Jun 27 2023 Tao Liu <ltao@redhat.com> - 0.2.5-2
+- Add missing tests directory
+
+* Mon Jun 26 2023 Tao Liu <ltao@redhat.com> - 0.2.5-1
+- Rebase to latest upstream(e2d91c4823b)
+
 * Fri Jul 15 2022 Tao Liu <ltao@redhat.com> - 0.2.4-2
 - Revert bz2107730
 

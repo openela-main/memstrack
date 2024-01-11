@@ -1,0 +1,74 @@
+From e2d91c4823b29ddd17e9b7ea966fe1dec53ae278 Mon Sep 17 00:00:00 2001
+From: Tao Liu <ltao@redhat.com>
+Date: Tue, 28 Mar 2023 15:08:04 +0800
+Subject: [PATCH] Enlarge rlimits if maximum open fds reached for
+ sys_perf_event_open
+
+The sys_perf_event_open may fail due to reaching the maximum number of open
+file descriptors. In fedora the ulimit -n gives 1024 by default, and
+sys_perf_event_open() failing can be seen on systems which have a large cpu
+number:
+
+    $ lscpu
+    Architecture:        aarch64
+    CPU(s):              224
+    On-line CPU(s) list: 0-223
+    ...
+
+In this case, for function perf_handling_init(), we will have
+perf_event_ring_num = perf_event_enabled_num * 224, i.e. 6 * 224 = 1344, which
+is larger than 1024. As a result, perf_ring_setup() will be called 1344 times.
+And each time a sys_perf_event_open() will return a perf_fd. So the maximun
+number of fds will exceed limits and fail.
+
+In this patch, we will try to enlarge rlimit if we have reached the maximum
+number of open fds.
+
+Signed-off-by: Tao Liu <ltao@redhat.com>
+---
+ src/backend/perf-events.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/src/backend/perf-events.c b/src/backend/perf-events.c
+index 67f1dad..7199925 100644
+--- a/src/backend/perf-events.c
++++ b/src/backend/perf-events.c
+@@ -29,6 +29,7 @@
+ #include <sys/sysinfo.h>
+ #include <linux/perf_event.h>
+ #include <sys/syscall.h>
++#include <sys/resource.h>
+ 
+ #include "perf-internal.h"
+ #include "perf-events-define.h"
+@@ -357,9 +358,27 @@ int perf_ring_setup(struct PerfEventRing *ring) {
+ 	attr.wakeup_watermark = WAKEUP_WATERMARK;
+ 	attr.watermark = 1;
+ 
++retry:
+ 	perf_fd = sys_perf_event_open(&attr, -1, ring->cpu, -1, 0);
+ 
+ 	if (perf_fd <= 0) {
++		if (errno == EMFILE) {
++			struct rlimit rl;
++			if (getrlimit(RLIMIT_NOFILE, &rl) != 0) {
++				log_error("Error getting rlimit value: %s\n",
++					strerror(errno));
++				return errno;
++			}
++			rl.rlim_cur <<= 1;
++			rl.rlim_max <<= 1;
++			if (setrlimit(RLIMIT_NOFILE, &rl) != 0) {
++				log_error("Error setting rlimit value to be"
++					" rlim_cur(%lu) rlim_max(%lu): %s\n",
++					rl.rlim_cur, rl.rlim_max, strerror(errno));
++				return errno;
++			}
++			goto retry;
++		}
+ 		log_error("Error calling perf_event_open: %s\n", strerror(errno));
+ 		return errno;
+ 	}
+-- 
+2.40.1
+
